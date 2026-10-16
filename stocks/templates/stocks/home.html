@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}搜尋股票{% endblock %}
+{% block content %}
+<form class="row g-2 mb-4" method="get">
+  <div class="col"><input name="q" value="{{ q }}" class="form-control form-control-lg" placeholder="輸入股票代號或名稱，例如 2330 或 台積電" autofocus></div>
+  <div class="col-auto"><button class="btn btn-primary btn-lg">搜尋</button></div>
+</form>
+{% if q %}
+  {% if results %}
+  <div class="list-group">
+    {% for s in results %}
+    <div class="list-group-item d-flex justify-content-between align-items-center">
+      <a href="{% url 'stock_detail' s.stock_id %}" class="text-decoration-none">
+        <strong>{{ s.stock_id }}</strong> {{ s.name }}
+        <small class="text-muted ms-2">{{ s.industry }} · {{ s.market }}</small>
+      </a>
+      <form method="post" action="{% url 'toggle_favorite' s.stock_id %}">{% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        {% if s.stock_id in fav_ids %}
+          <button class="btn btn-sm btn-warning">★ 已收藏</button>
+        {% else %}
+          <button class="btn btn-sm btn-outline-warning">☆ 加入最愛</button>
+        {% endif %}
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+    <div class="alert alert-secondary">找不到符合「{{ q }}」的股票</div>
+  {% endif %}
+{% else %}
+  <p class="text-muted">請輸入關鍵字搜尋，或前往 <a href="{% url 'favorites' %}">我的最愛</a>。</p>
+{% endif %}
+{% endblock %}

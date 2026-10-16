@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}我的最愛{% endblock %}
+{% block content %}
+<h3 class="mb-3">★ 我的最愛</h3>
+{% if rows %}
+<table class="table table-hover bg-white shadow-sm">
+  <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>產業</th><th>最近日期</th><th class="text-end">收盤價</th><th></th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="{% url 'stock_detail' r.stock.stock_id %}">{{ r.stock.stock_id }}</a></td>
+      <td>{{ r.stock.name }}</td>
+      <td>{{ r.stock.industry }}</td>
+      <td>{{ r.last.date|default:"（尚未抓取）" }}</td>
+      <td class="text-end">{{ r.last.close|default:"-" }}</td>
+      <td class="text-end">
+        <form method="post" action="{% url 'toggle_favorite' r.stock.stock_id %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'favorites' %}">
+          <button class="btn btn-sm btn-outline-danger">移除</button>
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div class="alert alert-secondary">尚未加入任何股票，<a href="{% url 'home' %}">去搜尋</a>。</div>
+{% endif %}
+{% endblock %}
