@@ -14,10 +14,16 @@
       <td>{{ r.last.date|default:"（尚未抓取）" }}</td>
       <td class="text-end">{{ r.last.close|default:"-" }}</td>
       <td class="text-end">
-        <form method="post" action="{% url 'toggle_favorite' r.stock.stock_id %}">{% csrf_token %}
-          <input type="hidden" name="next" value="{% url 'favorites' %}">
-          <button class="btn btn-sm btn-outline-danger">移除</button>
-        </form>
+        <div class="d-flex gap-2 justify-content-end">
+          <form method="post" action="{% url 'refresh_price' r.stock.stock_id %}">{% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'favorites' %}">
+            <button class="btn btn-sm btn-outline-secondary">↻ 更新最新資料</button>
+          </form>
+          <form method="post" action="{% url 'toggle_favorite' r.stock.stock_id %}">{% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'favorites' %}">
+            <button class="btn btn-sm btn-outline-danger">移除</button>
+          </form>
+        </div>
       </td>
     </tr>
   {% endfor %}

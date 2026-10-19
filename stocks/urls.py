@@ -12,5 +12,6 @@ urlpatterns = [
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("stock/<str:stock_id>/", views.stock_detail, name="stock_detail"),
     path("stock/<str:stock_id>/favorite/", views.toggle_favorite, name="toggle_favorite"),
+    path("stock/<str:stock_id>/refresh/", views.refresh_price, name="refresh_price"),
     path("favorites/", views.favorites, name="favorites"),
 ]

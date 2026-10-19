@@ -14,14 +14,20 @@
         <strong>{{ s.stock_id }}</strong> {{ s.name }}
         <small class="text-muted ms-2">{{ s.industry }} · {{ s.market }}</small>
       </a>
-      <form method="post" action="{% url 'toggle_favorite' s.stock_id %}">{% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        {% if s.stock_id in fav_ids %}
-          <button class="btn btn-sm btn-warning">★ 已收藏</button>
-        {% else %}
-          <button class="btn btn-sm btn-outline-warning">☆ 加入最愛</button>
-        {% endif %}
-      </form>
+      <div class="d-flex gap-2">
+        <form method="post" action="{% url 'refresh_price' s.stock_id %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          <button class="btn btn-sm btn-outline-secondary">↻ 更新最新資料</button>
+        </form>
+        <form method="post" action="{% url 'toggle_favorite' s.stock_id %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.get_full_path }}">
+          {% if s.stock_id in fav_ids %}
+            <button class="btn btn-sm btn-warning">★ 已收藏</button>
+          {% else %}
+            <button class="btn btn-sm btn-outline-warning">☆ 加入最愛</button>
+          {% endif %}
+        </form>
+      </div>
     </div>
     {% endfor %}
   </div>

@@ -74,6 +74,21 @@ def toggle_favorite(request, stock_id):
 
 
 @login_required
+@require_POST
+def refresh_price(request, stock_id):
+    stock = get_object_or_404(Stock, stock_id=stock_id)
+    try:
+        ensure_prices(stock, force=True)
+        messages.success(request, f"已更新 {stock} 的最新資料")
+    except FinMindError as e:
+        messages.error(request, str(e))
+    nxt = request.POST.get("next", "")
+    if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}):
+        return redirect(nxt)
+    return redirect("stock_detail", stock_id=stock_id)
+
+
+@login_required
 def favorites(request):
     favs = request.user.favorites.select_related("stock").order_by("stock__stock_id")
     rows = []

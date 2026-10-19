@@ -40,14 +40,14 @@ def ensure_stock_list():
     Stock.objects.bulk_create(rows.values(), ignore_conflicts=True)
 
 
-def ensure_prices(stock):
-    """當天已抓過就直接用資料庫；否則從最後一筆日期往後補抓。"""
+def ensure_prices(stock, force=False):
+    """當天已抓過就直接用資料庫；force=True 時無視快取，重抓最後一天起的資料並覆蓋。"""
     today = date.today()
-    if stock.last_fetched == today:
+    if not force and stock.last_fetched == today:
         return
     last = stock.prices.order_by("-date").first()
     if last:
-        start = last.date + timedelta(days=1)
+        start = last.date if force else last.date + timedelta(days=1)
     else:
         start = today - timedelta(days=365 * YEARS + WARMUP_DAYS)
 
@@ -68,7 +68,16 @@ def ensure_prices(stock):
             for r in data
             if r["Trading_Volume"] > 0  # 排除停牌日
         ]
-        DailyPrice.objects.bulk_create(objs, ignore_conflicts=True)
+        if objs:
+            if force:
+                # 強制更新時覆蓋已存在的當天資料，而非略過
+                DailyPrice.objects.bulk_create(
+                    objs, update_conflicts=True,
+                    update_fields=["open", "high", "low", "close", "volume"],
+                    unique_fields=["stock", "date"],
+                )
+            else:
+                DailyPrice.objects.bulk_create(objs, ignore_conflicts=True)
 
     stock.last_fetched = today
     stock.save(update_fields=["last_fetched"])
