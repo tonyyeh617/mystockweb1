@@ -26,8 +26,12 @@
 <div class="row g-3 mb-3" id="summary"></div>
 
 <div class="card shadow-sm mb-4"><div class="card-body">
-  <canvas id="chart" height="110"></canvas>
-  <small class="text-muted">每日 VWAP ≈ (最高+最低+收盤)/3；區間 VWAP = Σ(每日VWAP×成交量) / Σ成交量（自所選區間起點累計）</small>
+  <div class="chart-scroll">
+    <div id="chartWrap" class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+  <small class="text-muted">每日 VWAP ≈ (最高+最低+收盤)/3；區間 VWAP = Σ(每日VWAP×成交量) / Σ成交量（自所選區間起點累計）；手機可左右滑動放大檢視折線</small>
 </div></div>
 
 <div class="card shadow-sm"><div class="card-body">
@@ -50,6 +54,11 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+  /* 資料點多時 chartWrap 會被 JS 撐寬，靠此容器橫向捲動放大檢視，不致擠成一團 */
+  .chart-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .chart-wrap { height: 320px; }
+</style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 const ALL = JSON.parse(document.getElementById('series-data').textContent);
@@ -87,6 +96,12 @@ function renderSummary(data) {
 function renderChart(data) {
   const ds = (label, key, color, extra = {}) => ({label, data: data.map(r => r[key]), borderColor: color,
     backgroundColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.1, spanGaps: true, ...extra});
+
+  // 依資料點數撐開寬度，窄螢幕時靠外層橫向捲動放大檢視，避免折線全擠在一起
+  const PX_PER_POINT = 6;
+  const minWidth = document.querySelector('.chart-scroll').clientWidth;
+  document.getElementById('chartWrap').style.width = Math.max(minWidth, data.length * PX_PER_POINT) + 'px';
+
   const cfg = {
     type: 'line',
     data: {
@@ -100,6 +115,8 @@ function renderChart(data) {
       ],
     },
     options: {
+      responsive: true,
+      maintainAspectRatio: false,
       interaction: {mode: 'index', intersect: false},
       plugins: {tooltip: {callbacks: {label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}`}}},
       scales: {x: {ticks: {maxTicksLimit: 12}}},
