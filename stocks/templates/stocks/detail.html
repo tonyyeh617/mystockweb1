@@ -26,12 +26,19 @@
 <div class="row g-3 mb-3" id="summary"></div>
 
 <div class="card shadow-sm mb-4"><div class="card-body">
+  <div class="d-flex justify-content-end gap-2 mb-2">
+    <div class="btn-group btn-group-sm" id="zoomBtns">
+      <button type="button" class="btn btn-outline-secondary" id="zoomOut" title="縮小看整體">－</button>
+      <button type="button" class="btn btn-outline-secondary" id="zoomFit" title="整體檢視">整體</button>
+      <button type="button" class="btn btn-outline-secondary" id="zoomIn" title="放大看細節">＋</button>
+    </div>
+  </div>
   <div class="chart-scroll">
     <div id="chartWrap" class="chart-wrap">
       <canvas id="chart"></canvas>
     </div>
   </div>
-  <small class="text-muted">每日 VWAP ≈ (最高+最低+收盤)/3；區間 VWAP = Σ(每日VWAP×成交量) / Σ成交量（自所選區間起點累計）；手機可左右滑動放大檢視折線</small>
+  <small class="text-muted">每日 VWAP ≈ (最高+最低+收盤)/3；區間 VWAP = Σ(每日VWAP×成交量) / Σ成交量（自所選區間起點累計）；可用 +／－ 按鈕或手機滑動切換整體與細節檢視</small>
 </div></div>
 
 <div class="card shadow-sm"><div class="card-body">
@@ -64,6 +71,8 @@
 const ALL = JSON.parse(document.getElementById('series-data').textContent);
 const PAGE_SIZE = 20;
 let rows = [], page = 0, chart = null;
+let currentData = [], pxPerPoint = 6;
+const MAX_PX_PER_POINT = 30;
 
 const fmt = (v, d = 2) => v == null ? '-' : Number(v).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: d});
 
@@ -93,14 +102,21 @@ function renderSummary(data) {
     card('區間 VWAP', fmt(last.cumVwap));
 }
 
+function fitPxPerPoint() {
+  const minWidth = document.querySelector('.chart-scroll').clientWidth;
+  return currentData.length ? minWidth / currentData.length : pxPerPoint;
+}
+
+function applyChartWidth() {
+  const minWidth = document.querySelector('.chart-scroll').clientWidth;
+  document.getElementById('chartWrap').style.width = Math.max(minWidth, currentData.length * pxPerPoint) + 'px';
+  if (chart) chart.resize();
+}
+
 function renderChart(data) {
+  currentData = data;
   const ds = (label, key, color, extra = {}) => ({label, data: data.map(r => r[key]), borderColor: color,
     backgroundColor: color, borderWidth: 1.5, pointRadius: 0, tension: 0.1, spanGaps: true, ...extra});
-
-  // 依資料點數撐開寬度，窄螢幕時靠外層橫向捲動放大檢視，避免折線全擠在一起
-  const PX_PER_POINT = 6;
-  const minWidth = document.querySelector('.chart-scroll').clientWidth;
-  document.getElementById('chartWrap').style.width = Math.max(minWidth, data.length * PX_PER_POINT) + 'px';
 
   const cfg = {
     type: 'line',
@@ -124,6 +140,9 @@ function renderChart(data) {
   };
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), cfg);
+  // 每次換區間時，先以符合畫面寬度的縮放比例顯示整體走勢
+  pxPerPoint = fitPxPerPoint();
+  applyChartWidth();
 }
 
 function renderTable() {
@@ -156,6 +175,9 @@ if (ALL.length) {
   }));
   document.getElementById('prevPage').onclick = () => { page--; renderTable(); };
   document.getElementById('nextPage').onclick = () => { page++; renderTable(); };
+  document.getElementById('zoomIn').onclick = () => { pxPerPoint = Math.min(MAX_PX_PER_POINT, pxPerPoint * 1.5); applyChartWidth(); };
+  document.getElementById('zoomOut').onclick = () => { pxPerPoint = Math.max(fitPxPerPoint(), pxPerPoint / 1.5); applyChartWidth(); };
+  document.getElementById('zoomFit').onclick = () => { pxPerPoint = fitPxPerPoint(); applyChartWidth(); };
   selectRange(12);
 }
 </script>
