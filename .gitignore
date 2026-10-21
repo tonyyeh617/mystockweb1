@@ -6,3 +6,6 @@ __pycache__/
 *.py[cod]
 
 mysite/settings.py
+
+# 排程下載紀錄
+scripts/fetch_all_prices.log

@@ -38,7 +38,7 @@
       <canvas id="chart"></canvas>
     </div>
   </div>
-  <small class="text-muted">每日 VWAP ≈ (最高+最低+收盤)/3；區間 VWAP = Σ(每日VWAP×成交量) / Σ成交量（自所選區間起點累計）；可用 +／－ 按鈕或手機滑動切換整體與細節檢視</small>
+  <small class="text-muted">每日 VWAP ≈ (最高+最低+收盤)/3；錨定VWAP = Σ(每日VWAP×成交量) / Σ成交量（錨點為所選區間起點，逐日累計）；圖中亦含 MA20、MA60；可用 +／－ 按鈕或手機滑動切換整體與細節檢視</small>
 </div></div>
 
 <div class="card shadow-sm"><div class="card-body">
@@ -99,7 +99,7 @@ function renderSummary(data) {
     card('最新收盤 (' + last.date + ')', fmt(last.close)) +
     card('區間漲跌幅', (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%', chg >= 0 ? 'text-danger' : 'text-success') +
     card('區間最高 / 最低', fmt(hi) + ' / ' + fmt(lo)) +
-    card('區間 VWAP', fmt(last.cumVwap));
+    card('錨定VWAP', fmt(last.cumVwap));
 }
 
 function fitPxPerPoint() {
@@ -125,7 +125,7 @@ function renderChart(data) {
       datasets: [
         ds('收盤價', 'close', '#0d6efd', {borderWidth: 2}),
         ds('每日 VWAP', 'vwap', '#adb5bd', {borderDash: [3, 3]}),
-        ds('區間 VWAP', 'cumVwap', '#6f42c1', {borderWidth: 2}),
+        ds('錨定VWAP', 'cumVwap', '#6f42c1', {borderWidth: 2}),
         ds('MA20', 'ma20', '#fd7e14'),
         ds('MA60', 'ma60', '#20c997'),
       ],
