@@ -17,7 +17,7 @@ def signup(request):
         if form.is_valid():
             user = form.save()
             login(request, user)
-            messages.success(request, "註冊成功，歡迎使用！")
+            messages.success(request, "註冊成功，歡迎使用！!!")
             return redirect("home")
     else:
         form = SignUpForm()
