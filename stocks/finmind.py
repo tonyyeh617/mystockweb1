@@ -101,3 +101,71 @@ def build_series(stock):
         })
     cutoff = (date.today() - timedelta(days=365 * YEARS)).isoformat()
     return [r for r in out if r["date"] >= cutoff]
+
+
+BREAKOUT_WINDOW = 120  # 高低點觀察區間（交易日）
+BREAKOUT_LOOKBACK = 10  # 往前找幾天內的 VWAP 向上突破
+VOLUME_MA = 20  # 成交量均量天數
+
+
+def find_breakout_candidates(limit=20):
+    """在已快取價格資料的股票中，篩選「深跌後止穩、站上VWAP」的候選股，回傳前 limit 名。
+
+    條件：1) 現價較120日高點回落 >=40%；2) 現價位於120日區間底部20%；
+    3) 近期出現向上突破VWAP；4) 突破後至今收盤都維持在VWAP之上；
+    5) 突破日成交量放大（>=20日均量1.2倍）且120日低點是近期（60日內）形成。
+    """
+    need = BREAKOUT_WINDOW + VOLUME_MA + BREAKOUT_LOOKBACK
+    candidates = []
+    for stock in Stock.objects.filter(prices__isnull=False).distinct():
+        prices = list(stock.prices.order_by("-date")[:need])
+        prices.reverse()  # 轉成日期由舊到新
+        if len(prices) < BREAKOUT_WINDOW + 1:
+            continue
+
+        window = prices[-BREAKOUT_WINDOW:]
+        high120 = max(p.high for p in window)
+        low120 = min(window, key=lambda p: p.low)
+        if high120 <= 0 or high120 == low120.low:
+            continue
+
+        current = window[-1]
+        drop_pct = (high120 - current.close) / high120 * 100
+        pos_pct = (current.close - low120.low) / (high120 - low120.low) * 100
+        if drop_pct < 40 or pos_pct > 20:
+            continue
+
+        closes = [p.close for p in prices]
+        vwaps = [(p.high + p.low + p.close) / 3 for p in prices]
+
+        breakout_idx = None
+        earliest = max(len(prices) - 1 - BREAKOUT_LOOKBACK, 0)
+        for i in range(len(prices) - 1, earliest, -1):
+            if closes[i] > vwaps[i] and closes[i - 1] <= vwaps[i - 1]:
+                breakout_idx = i
+                break
+        if breakout_idx is None:
+            continue
+        if any(closes[i] <= vwaps[i] for i in range(breakout_idx, len(prices))):
+            continue  # 突破後曾跌破VWAP，不符合「維持在上方」
+
+        vol_window = prices[max(breakout_idx - VOLUME_MA, 0):breakout_idx]
+        vol_ma20 = sum(p.volume for p in vol_window) / len(vol_window) if vol_window else 0
+        if not vol_ma20 or prices[breakout_idx].volume < vol_ma20 * 1.2:
+            continue
+        if (current.date - low120.date).days > 60:
+            continue  # 120日低點非近期形成
+
+        candidates.append({
+            "stock": stock,
+            "close": current.close,
+            "high120": high120,
+            "low120": low120.low,
+            "drop_pct": round(drop_pct, 1),
+            "pos_pct": round(pos_pct, 1),
+            "breakout_date": prices[breakout_idx].date,
+            "volume_ratio": round(prices[breakout_idx].volume / vol_ma20, 2),
+        })
+
+    candidates.sort(key=lambda c: (-c["drop_pct"], c["pos_pct"]))
+    return candidates[:limit]

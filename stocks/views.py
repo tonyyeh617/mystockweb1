@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .finmind import FinMindError, build_series, ensure_prices, ensure_stock_list
+from .finmind import FinMindError, build_series, ensure_prices, ensure_stock_list, find_breakout_candidates
 from .forms import SignUpForm
 from .models import Favorite, Stock
 
@@ -86,6 +86,13 @@ def refresh_price(request, stock_id):
     if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}):
         return redirect(nxt)
     return redirect("stock_detail", stock_id=stock_id)
+
+
+@login_required
+def screener(request):
+    candidates = find_breakout_candidates(limit=20)
+    fav_ids = set(request.user.favorites.values_list("stock_id", flat=True))
+    return render(request, "stocks/screener.html", {"candidates": candidates, "fav_ids": fav_ids})
 
 
 @login_required

@@ -14,4 +14,5 @@ urlpatterns = [
     path("stock/<str:stock_id>/favorite/", views.toggle_favorite, name="toggle_favorite"),
     path("stock/<str:stock_id>/refresh/", views.refresh_price, name="refresh_price"),
     path("favorites/", views.favorites, name="favorites"),
+    path("screener/", views.screener, name="screener"),
 ]

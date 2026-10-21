@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}推薦選股{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">🔍 推薦選股（止跌回升前 20）</h3>
+  <a href="{% url 'screener' %}" class="btn btn-outline-secondary btn-sm">重新整理</a>
+</div>
+<small class="text-muted d-block mb-3">
+  篩選條件：120日高點回落 ≥40%、現價位於120日區間底部20%、近期向上突破VWAP且至今維持在VWAP上方、
+  突破日成交量達20日均量1.2倍、120日低點為近60日內形成。僅掃描已查詢過（已有價格快取）的股票。
+</small>
+{% if candidates %}
+<table class="table table-hover bg-white shadow-sm align-middle">
+  <thead class="table-dark">
+    <tr>
+      <th>#</th><th>代號</th><th>名稱</th><th class="text-end">現價</th>
+      <th class="text-end">120日高</th><th class="text-end">120日低</th>
+      <th class="text-end">回落%</th><th class="text-end">區間位階%</th>
+      <th>突破日</th><th class="text-end">量能倍數</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in candidates %}
+    <tr>
+      <td>{{ forloop.counter }}</td>
+      <td><a href="{% url 'stock_detail' c.stock.stock_id %}">{{ c.stock.stock_id }}</a></td>
+      <td>{{ c.stock.name }}</td>
+      <td class="text-end">{{ c.close }}</td>
+      <td class="text-end">{{ c.high120 }}</td>
+      <td class="text-end">{{ c.low120 }}</td>
+      <td class="text-end text-danger">{{ c.drop_pct }}%</td>
+      <td class="text-end">{{ c.pos_pct }}%</td>
+      <td>{{ c.breakout_date }}</td>
+      <td class="text-end">{{ c.volume_ratio }}x</td>
+      <td>
+        <form method="post" action="{% url 'toggle_favorite' c.stock.stock_id %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'screener' %}">
+          {% if c.stock.stock_id in fav_ids %}
+            <button class="btn btn-sm btn-warning">★</button>
+          {% else %}
+            <button class="btn btn-sm btn-outline-warning">☆</button>
+          {% endif %}
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="alert alert-secondary">目前沒有符合條件的股票（也可能是尚未查詢足夠多股票、快取資料不足120日）。</div>
+{% endif %}
+{% endblock %}
