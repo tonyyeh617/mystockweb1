@@ -103,69 +103,78 @@ def build_series(stock):
     return [r for r in out if r["date"] >= cutoff]
 
 
-BREAKOUT_WINDOW = 120  # 高低點觀察區間（交易日）
-BREAKOUT_LOOKBACK = 10  # 往前找幾天內的 VWAP 向上突破
-VOLUME_MA = 20  # 成交量均量天數
+def fetch_price_range(stock, start, end):
+    """直接向 FinMind 下載指定區間的價格並覆蓋寫入，不影響 ensure_prices 的每日快取旗標。"""
+    data = _get({
+        "dataset": "TaiwanStockPrice",
+        "data_id": stock.stock_id,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+    })
+    objs = [
+        DailyPrice(
+            stock=stock,
+            date=datetime.strptime(r["date"], "%Y-%m-%d").date(),
+            open=r["open"], high=r["max"], low=r["min"], close=r["close"],
+            volume=r["Trading_Volume"],
+        )
+        for r in data
+        if r["Trading_Volume"] > 0  # 排除停牌日
+    ]
+    if objs:
+        DailyPrice.objects.bulk_create(
+            objs, update_conflicts=True,
+            update_fields=["open", "high", "low", "close", "volume"],
+            unique_fields=["stock", "date"],
+        )
+    return len(objs)
 
 
-def find_breakout_candidates(limit=20):
-    """在已快取價格資料的股票中，篩選「深跌後止穩、站上VWAP」的候選股，回傳前 limit 名。
+VOLUME_HISTORY_YEARS = 3
+VOLUME_HISTORY_END_LAG_DAYS = 30  # 從一個月前開始往回算，避免當月資料不完整
+VOLUME_DIP_RATIO = 1.5  # 三年中最高量須達今年量的幾倍，才算「高低落差明顯」
 
-    條件：1) 現價較120日高點回落 >=40%；2) 現價位於120日區間底部20%；
-    3) 近期出現向上突破VWAP；4) 突破後至今收盤都維持在VWAP之上；
-    5) 突破日成交量放大（>=20日均量1.2倍）且120日低點是近期（60日內）形成。
-    """
-    need = BREAKOUT_WINDOW + VOLUME_MA + BREAKOUT_LOOKBACK
+
+def volume_history_window():
+    """回傳 (start, end)：近3年區間，自一個月前往回推算。"""
+    end = date.today() - timedelta(days=VOLUME_HISTORY_END_LAG_DAYS)
+    start = end - timedelta(days=365 * VOLUME_HISTORY_YEARS)
+    return start, end
+
+
+def find_volume_dip_candidates(limit=20):
+    """在已快取近3年資料的股票中，找出「今年成交量為三年最低、且三年間有明顯高低落差」的候選股。"""
+    start, end = volume_history_window()
+    year2_cut = end - timedelta(days=365)
+    year1_cut = end - timedelta(days=365 * 2)
+
     candidates = []
-    for stock in Stock.objects.filter(prices__isnull=False).distinct():
-        prices = list(stock.prices.order_by("-date")[:need])
-        prices.reverse()  # 轉成日期由舊到新
-        if len(prices) < BREAKOUT_WINDOW + 1:
+    stocks = Stock.objects.filter(prices__date__gte=start, prices__date__lte=end).distinct()
+    for stock in stocks:
+        prices = list(stock.prices.filter(date__gte=start, date__lte=end))
+        if len(prices) < 400:  # 資料不足三年的交易日數就略過（約每年200個交易日）
             continue
 
-        window = prices[-BREAKOUT_WINDOW:]
-        high120 = max(p.high for p in window)
-        low120 = min(window, key=lambda p: p.low)
-        if high120 <= 0 or high120 == low120.low:
-            continue
+        vol_y1 = sum(p.volume for p in prices if p.date <= year1_cut)
+        vol_y2 = sum(p.volume for p in prices if year1_cut < p.date <= year2_cut)
+        vol_y3 = sum(p.volume for p in prices if p.date > year2_cut)  # 今年
+        years_vol = [vol_y1, vol_y2, vol_y3]
+        if min(years_vol) <= 0 or vol_y3 != min(years_vol):
+            continue  # 今年不是三年中成交量最低的一年
 
-        current = window[-1]
-        drop_pct = (high120 - current.close) / high120 * 100
-        pos_pct = (current.close - low120.low) / (high120 - low120.low) * 100
-        if drop_pct < 40 or pos_pct > 20:
-            continue
-
-        closes = [p.close for p in prices]
-        vwaps = [(p.high + p.low + p.close) / 3 for p in prices]
-
-        breakout_idx = None
-        earliest = max(len(prices) - 1 - BREAKOUT_LOOKBACK, 0)
-        for i in range(len(prices) - 1, earliest, -1):
-            if closes[i] > vwaps[i] and closes[i - 1] <= vwaps[i - 1]:
-                breakout_idx = i
-                break
-        if breakout_idx is None:
-            continue
-        if any(closes[i] <= vwaps[i] for i in range(breakout_idx, len(prices))):
-            continue  # 突破後曾跌破VWAP，不符合「維持在上方」
-
-        vol_window = prices[max(breakout_idx - VOLUME_MA, 0):breakout_idx]
-        vol_ma20 = sum(p.volume for p in vol_window) / len(vol_window) if vol_window else 0
-        if not vol_ma20 or prices[breakout_idx].volume < vol_ma20 * 1.2:
-            continue
-        if (current.date - low120.date).days > 60:
-            continue  # 120日低點非近期形成
+        ratio = max(years_vol) / vol_y3
+        if ratio < VOLUME_DIP_RATIO:
+            continue  # 高低落差不夠明顯
 
         candidates.append({
             "stock": stock,
-            "close": current.close,
-            "high120": high120,
-            "low120": low120.low,
-            "drop_pct": round(drop_pct, 1),
-            "pos_pct": round(pos_pct, 1),
-            "breakout_date": prices[breakout_idx].date,
-            "volume_ratio": round(prices[breakout_idx].volume / vol_ma20, 2),
+            "vol_y1": vol_y1,
+            "vol_y2": vol_y2,
+            "vol_y3": vol_y3,
+            "ratio": round(ratio, 2),
         })
 
-    candidates.sort(key=lambda c: (-c["drop_pct"], c["pos_pct"]))
+    candidates.sort(key=lambda c: -c["ratio"])
     return candidates[:limit]
+
+

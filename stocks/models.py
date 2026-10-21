@@ -34,3 +34,14 @@ class Favorite(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["user", "stock"], name="uniq_user_stock")]
+
+
+class FetchCheckpoint(models.Model):
+    """記錄批次抓取工作的進度，中斷（如遇API流量限制）後可從上次位置繼續。"""
+    key = models.CharField(max_length=50, unique=True)
+    last_stock_id = models.CharField(max_length=10, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.key} -> {self.last_stock_id or '(未開始)'}"
+
