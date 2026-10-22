@@ -27,6 +27,8 @@
 
 <div class="card shadow-sm mb-4"><div class="card-body">
   <div class="d-flex justify-content-end gap-2 mb-2">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleChartDetails"
+            aria-pressed="false">顯示圖表細節</button>
     <div class="btn-group btn-group-sm" id="zoomBtns">
       <button type="button" class="btn btn-outline-secondary" id="zoomOut" title="縮小看整體">－</button>
       <button type="button" class="btn btn-outline-secondary" id="zoomFit" title="整體檢視">整體</button>
@@ -76,9 +78,25 @@ const ALL = JSON.parse(document.getElementById('series-data').textContent);
 const PAGE_SIZE = 20;
 let rows = [], page = 0, chart = null;
 let currentData = [], pxPerPoint = 6;
+let chartDetailsEnabled = false;
 const MAX_PX_PER_POINT = 30;
 
 const fmt = (v, d = 2) => v == null ? '-' : Number(v).toLocaleString(undefined, {minimumFractionDigits: d, maximumFractionDigits: d});
+
+function updateChartDetailsButton() {
+  const button = document.getElementById('toggleChartDetails');
+  button.textContent = chartDetailsEnabled ? '隱藏圖表細節' : '顯示圖表細節';
+  button.setAttribute('aria-pressed', String(chartDetailsEnabled));
+}
+
+function toggleChartDetails() {
+  chartDetailsEnabled = !chartDetailsEnabled;
+  updateChartDetailsButton();
+  if (chart) {
+    chart.options.plugins.tooltip.enabled = chartDetailsEnabled;
+    chart.update();
+  }
+}
 
 function sliceByMonths(m) {
   if (!ALL.length) return [];
@@ -164,7 +182,10 @@ function renderChart(data) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: {mode: 'index', intersect: false},
-      plugins: {tooltip: {callbacks: {label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}`}}},
+      plugins: {tooltip: {
+        enabled: chartDetailsEnabled,
+        callbacks: {label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}`}
+      }},
       scales: {
         x: {ticks: {maxTicksLimit: 12}},
         y: {position: 'left'},
@@ -204,6 +225,8 @@ function selectRange(months) {
 }
 
 if (ALL.length) {
+  document.getElementById('toggleChartDetails').addEventListener('click', toggleChartDetails);
+  updateChartDetailsButton();
   document.getElementById('toggleKD').addEventListener('change', applyKD);
   document.querySelectorAll('#rangeBtns button').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('#rangeBtns button').forEach(b => b.classList.remove('active'));
