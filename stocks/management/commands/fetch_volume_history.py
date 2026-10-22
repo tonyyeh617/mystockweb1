@@ -2,7 +2,10 @@ import sys
 
 from django.core.management.base import BaseCommand
 
-from stocks.finmind import FinMindError, ensure_stock_list, fetch_price_range, volume_history_window
+from stocks.finmind import (
+    FinMindError, ensure_stock_list, fetch_price_range, mark_volume_covered,
+    plan_volume_fetch, volume_history_window,
+)
 from stocks.models import FetchCheckpoint, Stock
 
 CHECKPOINT_KEY = "volume_history"
@@ -53,10 +56,16 @@ class Command(BaseCommand):
         total = len(stocks)
         self.stdout.write(f"本次預計處理 {total} 檔股票...")
 
-        done = failed = 0
+        done = failed = skipped = 0
         for index, stock in enumerate(stocks, start=1):
+            fetch_start = plan_volume_fetch(stock, start, end)
+            if fetch_start is None:
+                skipped += 1
+                self._print_progress(index, total, stock, "略過（區間資料已抓取）")
+                continue
             try:
-                fetch_price_range(stock, start, end)
+                fetch_price_range(stock, fetch_start, end)
+                mark_volume_covered(stock, end)
             except FinMindError as e:
                 self._print_progress(index, total, stock, "失敗")
                 self.stdout.write("")  # 結束進度列、換行
@@ -77,4 +86,4 @@ class Command(BaseCommand):
             checkpoint.last_stock_id = ""
             checkpoint.save(update_fields=["last_stock_id", "updated_at"])
 
-        self.stdout.write(self.style.SUCCESS(f"完成：成功 {done} 檔、失敗 {failed} 檔"))
+        self.stdout.write(self.style.SUCCESS(f"完成：成功 {done} 檔、略過 {skipped} 檔（已抓取，未耗用 API）、失敗 {failed} 檔"))

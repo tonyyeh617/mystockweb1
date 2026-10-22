@@ -32,6 +32,10 @@
       <button type="button" class="btn btn-outline-secondary" id="zoomFit" title="整體檢視">整體</button>
       <button type="button" class="btn btn-outline-secondary" id="zoomIn" title="放大看細節">＋</button>
     </div>
+    <div class="form-check form-switch ms-2">
+      <input class="form-check-input" type="checkbox" id="toggleKD">
+      <label class="form-check-label" for="toggleKD">顯示 KD</label>
+    </div>
   </div>
   <div class="chart-scroll">
     <div id="chartWrap" class="chart-wrap">
@@ -113,6 +117,30 @@ function applyChartWidth() {
   if (chart) chart.resize();
 }
 
+function applyKD() {
+  if (!chart) return;
+  const on = document.getElementById('toggleKD').checked;
+  chart.data.datasets.forEach((d, i) => {
+    if (d.label === 'K值' || d.label === 'D值') chart.setDatasetVisibility(i, on);
+  });
+  chart.options.scales.y1.display = on;
+  fitPriceAxis();
+  chart.update();
+}
+
+// 依目前可見的價格類資料重設左軸範圍，KD 隱藏時不受其 0–100 影響
+function fitPriceAxis() {
+  let lo = Infinity, hi = -Infinity;
+  chart.data.datasets.forEach((d, i) => {
+    if (d.yAxisID === 'y1' || !chart.isDatasetVisible(i)) return;
+    d.data.forEach(v => { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+  });
+  if (lo === Infinity) return;
+  const pad = (hi - lo) * 0.05 || 1;
+  chart.options.scales.y.min = lo - pad;
+  chart.options.scales.y.max = hi + pad;
+}
+
 function renderChart(data) {
   currentData = data;
   const ds = (label, key, color, extra = {}) => ({label, data: data.map(r => r[key]), borderColor: color,
@@ -128,6 +156,8 @@ function renderChart(data) {
         ds('錨定VWAP', 'cumVwap', '#6f42c1', {borderWidth: 2}),
         ds('MA20', 'ma20', '#fd7e14'),
         ds('MA60', 'ma60', '#20c997'),
+        ds('K值', 'k', '#e83e8c', {yAxisID: 'y1', borderWidth: 1, hidden: true}),
+        ds('D值', 'd', '#0dcaf0', {yAxisID: 'y1', borderWidth: 1, hidden: true}),
       ],
     },
     options: {
@@ -135,11 +165,17 @@ function renderChart(data) {
       maintainAspectRatio: false,
       interaction: {mode: 'index', intersect: false},
       plugins: {tooltip: {callbacks: {label: c => `${c.dataset.label}: ${fmt(c.parsed.y)}`}}},
-      scales: {x: {ticks: {maxTicksLimit: 12}}},
+      scales: {
+        x: {ticks: {maxTicksLimit: 12}},
+        y: {position: 'left'},
+        y1: {display: false, position: 'right', min: 0, max: 100,
+             title: {display: true, text: 'KD'}, grid: {drawOnChartArea: false}},
+      },
     },
   };
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), cfg);
+  applyKD();
   // 每次換區間時，先以符合畫面寬度的縮放比例顯示整體走勢
   pxPerPoint = fitPxPerPoint();
   applyChartWidth();
@@ -168,6 +204,7 @@ function selectRange(months) {
 }
 
 if (ALL.length) {
+  document.getElementById('toggleKD').addEventListener('change', applyKD);
   document.querySelectorAll('#rangeBtns button').forEach(btn => btn.addEventListener('click', () => {
     document.querySelectorAll('#rangeBtns button').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');

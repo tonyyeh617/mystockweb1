@@ -88,7 +88,16 @@ def build_series(stock):
     prices = list(stock.prices.order_by("date"))
     closes = [p.close for p in prices]
     out = []
+    k = d = 50.0  # KD 慣例初始值
     for i, p in enumerate(prices):
+        k_val = d_val = None
+        if i >= 8:
+            window = prices[i - 8:i + 1]
+            hi, lo = max(w.high for w in window), min(w.low for w in window)
+            rsv = (p.close - lo) / (hi - lo) * 100 if hi != lo else 50.0
+            k = k * 2 / 3 + rsv / 3
+            d = d * 2 / 3 + k / 3
+            k_val, d_val = round(k, 2), round(d, 2)
         ma20 = sum(closes[i - 19:i + 1]) / 20 if i >= 19 else None
         ma60 = sum(closes[i - 59:i + 1]) / 60 if i >= 59 else None
         out.append({
@@ -98,6 +107,7 @@ def build_series(stock):
             "vwap": round((p.high + p.low + p.close) / 3, 2),
             "ma20": round(ma20, 2) if ma20 is not None else None,
             "ma60": round(ma60, 2) if ma60 is not None else None,
+            "k": k_val, "d": d_val,
         })
     cutoff = (date.today() - timedelta(days=365 * YEARS)).isoformat()
     return [r for r in out if r["date"] >= cutoff]
@@ -140,6 +150,47 @@ def volume_history_window():
     end = date.today() - timedelta(days=VOLUME_HISTORY_END_LAG_DAYS)
     start = end - timedelta(days=365 * VOLUME_HISTORY_YEARS)
     return start, end
+
+
+VOLUME_COVERAGE_TOLERANCE_DAYS = 10  # 容許假日/停牌造成的首尾日期落差
+VOLUME_MARKER_PREFIX = "volume_covered:"
+
+
+def plan_volume_fetch(stock, start, end):
+    """依資料庫現有紀錄決定需下載的起日；回傳 None 表示整段已抓過，不需呼叫 API（不耗 token）。
+
+    - 已有標記（曾完整抓過區間，如新上市股票）或最早資料已涵蓋區間起點：只需補最後一筆之後的資料。
+    - 否則（尚未抓過）：下載整段區間。
+    """
+    from .models import FetchCheckpoint
+
+    tol = timedelta(days=VOLUME_COVERAGE_TOLERANCE_DAYS)
+    first = stock.prices.order_by("date").first()
+    last = stock.prices.order_by("-date").first()
+    marker = FetchCheckpoint.objects.filter(key=VOLUME_MARKER_PREFIX + stock.stock_id).first()
+    marker_end = None
+    if marker and marker.last_stock_id:
+        try:
+            marker_end = date.fromisoformat(marker.last_stock_id)
+        except ValueError:
+            pass
+
+    start_covered = (first is not None and first.date <= start + tol) or marker_end is not None
+    if not start_covered or last is None:
+        return start
+    latest = max(last.date, marker_end) if marker_end else last.date
+    if latest >= end - tol:
+        return None
+    return latest + timedelta(days=1)
+
+
+def mark_volume_covered(stock, end):
+    from .models import FetchCheckpoint
+
+    FetchCheckpoint.objects.update_or_create(
+        key=VOLUME_MARKER_PREFIX + stock.stock_id,
+        defaults={"last_stock_id": end.isoformat()},
+    )
 
 
 def find_volume_dip_candidates(limit=20):
