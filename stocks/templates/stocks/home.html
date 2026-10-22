@@ -2,7 +2,7 @@
 {% block title %}搜尋股票{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-end mb-2">
-  <a href="{% url 'screener' %}" class="btn btn-success">🔍 推薦選股（止跌回升前20）</a>
+  <a href="{% url 'screener' %}" class="btn btn-success">🔍 推薦選股（VWAP震盪低檔前20）</a>
 </div>
 <form class="row g-2 mb-4" method="get">
   <div class="col"><input name="q" value="{{ q }}" class="form-control form-control-lg" placeholder="輸入股票代號或名稱，例如 2330 或 台積電" autofocus></div>

@@ -2,12 +2,14 @@
 {% block title %}推薦選股{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-  <h3 class="mb-0">🔍 推薦選股（近3年量縮前 20）</h3>
+  <h3 class="mb-0">🔍 推薦選股（錨定 VWAP 震盪且近六個月低檔前 20）</h3>
   <a href="{% url 'screener' %}" class="btn btn-outline-secondary btn-sm">重新整理</a>
 </div>
 <small class="text-muted d-block mb-3">
-  篩選條件：將近3年（自一個月前往回推算）成交量依年度切成三段，今年成交量須是三年中最低，
-  且三年最高量須達今年量的 1.5 倍以上（高低落差明顯）。僅掃描已下載年度成交量資料的股票，
+  篩選條件：以近3年（自一個月前往回推算）起點為錨點計算錨定 VWAP，三個年度各自須：
+  收盤價有效穿越錨定 VWAP（偏離超過 1%）至少 3 次、同時有高於與低於 VWAP 至少 3% 的時候、
+  在 VWAP 上方的天數占 20%~80%（排除單邊走勢）；且最新收盤位於近六個月價格區間底部 20%。
+  依穿越頻率、波動幅度、上下均衡度與低檔程度評分。僅掃描已下載3年資料的股票，
   請先手動執行 <code>python manage.py fetch_volume_history</code> 下載資料。
 </small>
 {% if candidates %}
@@ -15,8 +17,9 @@
   <thead class="table-dark">
     <tr>
       <th>#</th><th>代號</th><th>名稱</th>
-      <th class="text-end">第1年量(張)</th><th class="text-end">第2年量(張)</th><th class="text-end">今年量(張)</th>
-      <th class="text-end">高低倍數</th><th></th>
+      <th class="text-end">最新收盤</th><th class="text-end">錨定VWAP</th>
+      <th class="text-end">各年穿越次數</th><th class="text-end">平均振幅</th>
+      <th class="text-end">六個月位置</th><th class="text-end">評分</th><th></th>
     </tr>
   </thead>
   <tbody>
@@ -25,10 +28,12 @@
       <td>{{ forloop.counter }}</td>
       <td><a href="{% url 'stock_detail' c.stock.stock_id %}">{{ c.stock.stock_id }}</a></td>
       <td>{{ c.stock.name }}</td>
-      <td class="text-end">{{ c.vol_y1|floatformat:0 }}</td>
-      <td class="text-end">{{ c.vol_y2|floatformat:0 }}</td>
-      <td class="text-end text-danger">{{ c.vol_y3|floatformat:0 }}</td>
-      <td class="text-end">{{ c.ratio }}x</td>
+      <td class="text-end">{{ c.close|floatformat:2 }}<br><small class="text-muted">{{ c.latest_date }}</small></td>
+      <td class="text-end">{{ c.anchored_vwap|floatformat:2 }}</td>
+      <td class="text-end">{{ c.crossings.0 }} / {{ c.crossings.1 }} / {{ c.crossings.2 }}</td>
+      <td class="text-end">{{ c.avg_amp }}%</td>
+      <td class="text-end text-success">{{ c.position }}%</td>
+      <td class="text-end"><strong>{{ c.score }}</strong></td>
       <td>
         <form method="post" action="{% url 'toggle_favorite' c.stock.stock_id %}">{% csrf_token %}
           <input type="hidden" name="next" value="{% url 'screener' %}">
