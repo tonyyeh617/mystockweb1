@@ -118,10 +118,20 @@ y軸顯示範圍，請依照剩下的指數更改範圍，才會不都擠在一�
 
 
 
+===================================================
+我的系統為debain linux，
+每想要每2小時自動執行寫到排程，
+若手動想要執行時，會用以下操作:
+source /home/azureuser/venv1/bin/activate 
+cd venv1/mystockweb1/
+執行python manage.py fetch_all_prices 即可執行。
+python路徑為:/home/azureuser/venv1/bin/python.exe 
+manage.py路徑為:/home/azureuser/venv1/mystockweb1/manage.py 
+fetch_all_prices.py路徑為/home/azureuser/venv1/mystockweb1/stocks/management/commands/fetch_all_prices.py
+python manage.py fetch_all_prices這個指令幫我改成寫到排程的寫法
 
-
-
-
+===============================================================
+執行fetch_all_prices.py後，在terminal要顯示當下的日期與時間
 
 
 

@@ -2,6 +2,7 @@ import sys
 import time
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from stocks.finmind import FinMindError, ensure_prices, ensure_stock_list
 from stocks.models import Stock
@@ -14,7 +15,7 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--limit", type=int, default=0, help="最多處理幾檔股票（0 表示不限制）")
+        parser.add_argument("--limit", type=int, default=300, help="本次最多實際下載幾檔股票（已是最新而略過的不計入，0 表示不限制）")
         parser.add_argument("--sleep", type=float, default=1.0, help="每檔股票之間的延遲秒數，避免觸發流量限制")
 
     def _print_progress(self, index, total, stock, status):
@@ -26,21 +27,29 @@ class Command(BaseCommand):
         self.stdout.write(line.ljust(90), ending="")
         sys.stdout.flush()
 
+    def _print_finished_at(self):
+        finished_at = timezone.localtime().strftime("%Y-%m-%d %H:%M:%S")
+        self.stdout.write(f"執行結束時間：{finished_at}")
+
     def handle(self, *args, **options):
         try:
             ensure_stock_list()
         except FinMindError as e:
             self.stderr.write(self.style.ERROR(f"無法取得股票清單：{e}"))
+            self._print_finished_at()
             return
 
         stocks = list(Stock.objects.order_by("stock_id"))
-        if options["limit"]:
-            stocks = stocks[:options["limit"]]
+        limit = options["limit"]
         total = len(stocks)
-        self.stdout.write(f"共 {total} 檔股票，開始下載...")
+        self.stdout.write(f"共 {total} 檔股票，本次最多下載 {limit or '不限'} 檔...")
 
         updated = skipped = failed = 0
         for index, stock in enumerate(stocks, start=1):
+            if limit and updated >= limit:
+                self.stdout.write("")
+                self.stdout.write(self.style.WARNING(f"已達本次下載上限 {limit} 檔，停止；下次執行會繼續。"))
+                break
             before = stock.last_fetched
             try:
                 ensure_prices(stock)
@@ -64,4 +73,4 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"完成：更新 {updated} 檔、略過 {skipped} 檔（今日已抓過）、失敗 {failed} 檔"
         ))
-
+        self._print_finished_at()
