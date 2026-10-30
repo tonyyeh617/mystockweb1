@@ -15,4 +15,7 @@ urlpatterns = [
     path("stock/<str:stock_id>/refresh/", views.refresh_price, name="refresh_price"),
     path("favorites/", views.favorites, name="favorites"),
     path("screener/", views.screener, name="screener"),
+    path("dividends/", views.dividend_ranking, name="dividend_ranking"),
+    path("stock/<str:stock_id>/dividends/", views.stock_dividends, name="stock_dividends"),
+    path("stock/<str:stock_id>/dividends/refresh/", views.refresh_dividend, name="refresh_dividend"),
 ]

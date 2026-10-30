@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}股息排行{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">💰 股息排行（近期前 50 高）</h3>
+  <a href="{% url 'dividend_ranking' %}" class="btn btn-outline-secondary btn-sm">重新整理</a>
+</div>
+<small class="text-muted d-block mb-3">
+  依每檔股票「最近一個有公告股利的年度」現金股利＋股票股利合計排序，取前 50 檔。
+  僅掃描已下載股利資料的股票，請先手動執行 <code>python manage.py fetch_dividends</code> 下載資料。
+  點選股票代號可查看該股近幾年的股息細節。
+</small>
+{% if candidates %}
+<table class="table table-hover bg-white shadow-sm align-middle">
+  <thead class="table-dark">
+    <tr>
+      <th>#</th><th>代號</th><th>名稱</th><th>年度</th>
+      <th class="text-end">現金股利</th><th class="text-end">股票股利</th>
+      <th class="text-end">合計</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in candidates %}
+    <tr>
+      <td>{{ forloop.counter }}</td>
+      <td><a href="{% url 'stock_dividends' c.stock.stock_id %}">{{ c.stock.stock_id }}</a></td>
+      <td>{{ c.stock.name }}</td>
+      <td>{{ c.year }}</td>
+      <td class="text-end">{{ c.cash }}</td>
+      <td class="text-end">{{ c.stock_div }}</td>
+      <td class="text-end"><strong>{{ c.total }}</strong></td>
+      <td>
+        <form method="post" action="{% url 'toggle_favorite' c.stock.stock_id %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'dividend_ranking' %}">
+          {% if c.stock.stock_id in fav_ids %}
+            <button class="btn btn-sm btn-warning">★</button>
+          {% else %}
+            <button class="btn btn-sm btn-outline-warning">☆</button>
+          {% endif %}
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="alert alert-secondary">目前沒有股息資料（請先手動執行 <code>python manage.py fetch_dividends</code> 下載資料）。</div>
+{% endif %}
+{% endblock %}

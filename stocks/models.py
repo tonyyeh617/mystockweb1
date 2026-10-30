@@ -27,6 +27,22 @@ class DailyPrice(models.Model):
         constraints = [models.UniqueConstraint(fields=["stock", "date"], name="uniq_stock_date")]
 
 
+class Dividend(models.Model):
+    stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name="dividends")
+    year = models.CharField("股利所屬年度", max_length=10)
+    date = models.DateField("公告資料日期")
+    cash_dividend = models.FloatField("現金股利(元/股)", default=0.0)
+    stock_dividend = models.FloatField("股票股利(元/股)", default=0.0)
+    cash_ex_dividend_date = models.DateField("除息交易日", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-year", "-date"]
+        constraints = [models.UniqueConstraint(fields=["stock", "year", "date"], name="uniq_stock_year_date")]
+
+    def __str__(self):
+        return f"{self.stock_id} {self.year} 現金{self.cash_dividend} 股票{self.stock_dividend}"
+
+
 class Favorite(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorites")
     stock = models.ForeignKey(Stock, on_delete=models.CASCADE)

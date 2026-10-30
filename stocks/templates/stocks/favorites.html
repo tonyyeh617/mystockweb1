@@ -4,7 +4,7 @@
 <h3 class="mb-3">★ 我的最愛</h3>
 {% if rows %}
 <table class="table table-hover bg-white shadow-sm">
-  <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>產業</th><th>最近日期</th><th class="text-end">收盤價</th><th></th></tr></thead>
+  <thead class="table-dark"><tr><th>代號</th><th>名稱</th><th>產業</th><th>最近日期</th><th class="text-end">收盤價</th><th>近年股利</th><th></th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>
@@ -13,6 +13,16 @@
       <td>{{ r.stock.industry }}</td>
       <td>{{ r.last.date|default:"（尚未抓取）" }}</td>
       <td class="text-end">{{ r.last.close|default:"-" }}</td>
+      <td>
+        <div class="d-flex align-items-center flex-wrap gap-1">
+          {% for d in r.dividends %}
+            <span class="badge text-bg-light border">{{ d.year }}：{{ d.total }}</span>
+          {% empty %}
+            <small class="text-muted">尚未抓取</small>
+          {% endfor %}
+          <a href="{% url 'stock_dividends' r.stock.stock_id %}" class="small ms-1">細節 »</a>
+        </div>
+      </td>
       <td class="text-end">
         <div class="d-flex gap-2 justify-content-end">
           <form method="post" action="{% url 'refresh_price' r.stock.stock_id %}">{% csrf_token %}

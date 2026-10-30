@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 
 import requests
 
-from .models import DailyPrice, Stock
+from .models import DailyPrice, Dividend, Stock
 
 API_URL = "https://api.finmindtrade.com/api/v4/data"
 YEARS = 5
@@ -298,6 +298,86 @@ def find_vwap_oscillation_candidates(limit=20):
             candidates.append(result)
     candidates.sort(key=lambda c: -c["score"])
     return candidates[:limit]
+
+
+# ---- 股息排行：依最近一個有公告股利的年度，現金+股票股利合計排序 ----
+DIVIDEND_START = date(2005, 5, 1)  # FinMind 股利資料起始日
+
+
+def _parse_optional_date(s):
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+def ensure_dividends(stock, force=False):
+    """抓取股利政策歷史資料並存入資料庫；已有資料時預設略過，force=True 會重新抓取整段歷史（更新最新年度）。"""
+    if not force and stock.dividends.exists():
+        return
+    data = _get({
+        "dataset": "TaiwanStockDividend",
+        "data_id": stock.stock_id,
+        "start_date": DIVIDEND_START.isoformat(),
+    })
+    objs = [
+        Dividend(
+            stock=stock,
+            year=str(r.get("year", "")),
+            date=datetime.strptime(r["date"], "%Y-%m-%d").date(),
+            cash_dividend=r.get("CashEarningsDistribution") or 0.0,
+            stock_dividend=r.get("StockEarningsDistribution") or 0.0,
+            cash_ex_dividend_date=_parse_optional_date(r.get("CashExDividendTradingDate")),
+        )
+        for r in data
+    ]
+    if objs:
+        Dividend.objects.bulk_create(
+            objs, update_conflicts=True,
+            update_fields=["cash_dividend", "stock_dividend", "cash_ex_dividend_date"],
+            unique_fields=["stock", "year", "date"],
+        )
+
+
+def find_dividend_ranking(limit=50):
+    """依每檔股票最近一個有公告股利的年度（現金+股票股利合計）排序，取前 limit 檔。只掃描已下載股利資料的股票。"""
+    rows = Dividend.objects.select_related("stock").order_by("stock_id", "-year", "-date")
+    by_stock = {}
+    for r in rows:
+        entry = by_stock.get(r.stock_id)
+        if entry is None:
+            entry = {"stock": r.stock, "year": r.year, "cash": 0.0, "stock_div": 0.0}
+            by_stock[r.stock_id] = entry
+        if entry["year"] != r.year:
+            continue  # 只累加最新年度（可能同年有多次配發，如期中+期末股利）
+        entry["cash"] += r.cash_dividend
+        entry["stock_div"] += r.stock_dividend
+
+    results = []
+    for entry in by_stock.values():
+        total = entry["cash"] + entry["stock_div"]
+        if total <= 0:
+            continue
+        results.append({
+            "stock": entry["stock"],
+            "year": entry["year"],
+            "cash": round(entry["cash"], 2),
+            "stock_div": round(entry["stock_div"], 2),
+            "total": round(total, 2),
+        })
+    results.sort(key=lambda r: -r["total"])
+    return results[:limit]
+
+
+def recent_dividend_summary(stock, years=5):
+    """由快取資料彙整某股票近幾個年度的股利合計（現金+股票股利），由新到舊排序；只讀快取，不呼叫 API。"""
+    rows = list(stock.dividends.order_by("-year", "-date"))
+    totals, order = {}, []
+    for r in rows:
+        if r.year not in totals:
+            order.append(r.year)
+        totals[r.year] = totals.get(r.year, 0.0) + r.cash_dividend + r.stock_dividend
+    return [{"year": y, "total": round(totals[y], 2)} for y in order[:years]]
 
 
 

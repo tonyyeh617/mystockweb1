@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ stock.stock_id }} {{ stock.name }} 股息細節{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">{{ stock.stock_id }} {{ stock.name }} <small class="text-muted fs-6">股息細節</small></h3>
+  <div class="d-flex gap-2">
+    <a href="{% url 'stock_detail' stock.stock_id %}" class="btn btn-outline-secondary">查看股價走勢</a>
+    <form method="post" action="{% url 'refresh_dividend' stock.stock_id %}">{% csrf_token %}
+      <button class="btn btn-outline-secondary">↻ 更新股息資料</button>
+    </form>
+  </div>
+</div>
+
+{% if rows %}
+<div class="card shadow-sm"><div class="card-body">
+  <table class="table table-sm table-striped text-end mb-0">
+    <thead>
+      <tr>
+        <th class="text-start">年度</th>
+        <th>現金股利(元/股)</th>
+        <th>股票股利(元/股)</th>
+        <th>合計</th>
+        <th>除息交易日</th>
+        <th>公告資料日期</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="text-start">{{ r.year }}</td>
+        <td>{{ r.cash_dividend|floatformat:2 }}</td>
+        <td>{{ r.stock_dividend|floatformat:2 }}</td>
+        <td><strong>{{ r.cash_dividend|add:r.stock_dividend|floatformat:2 }}</strong></td>
+        <td>{{ r.cash_ex_dividend_date|default:"-" }}</td>
+        <td>{{ r.date }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{% else %}
+<div class="alert alert-warning">目前沒有股息資料（可能該股票尚未配發過股利，或 API 次數已達上限，請稍後再試）。</div>
+{% endif %}
+{% endblock %}

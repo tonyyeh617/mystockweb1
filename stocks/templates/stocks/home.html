@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}搜尋股票{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-end mb-2">
+<div class="d-flex justify-content-end mb-2 gap-2">
+  <a href="{% url 'dividend_ranking' %}" class="btn btn-info">💰 股息排行（近期前50高）</a>
   <a href="{% url 'screener' %}" class="btn btn-success">🔍 推薦選股（VWAP震盪低檔前20）</a>
 </div>
 <form class="row g-2 mb-4" method="get">
@@ -12,24 +13,35 @@
   {% if results %}
   <div class="list-group">
     {% for s in results %}
-    <div class="list-group-item d-flex justify-content-between align-items-center">
-      <a href="{% url 'stock_detail' s.stock_id %}" class="text-decoration-none">
-        <strong>{{ s.stock_id }}</strong> {{ s.name }}
-        <small class="text-muted ms-2">{{ s.industry }} · {{ s.market }}</small>
-      </a>
-      <div class="d-flex gap-2">
-        <form method="post" action="{% url 'refresh_price' s.stock_id %}">{% csrf_token %}
-          <input type="hidden" name="next" value="{{ request.get_full_path }}">
-          <button class="btn btn-sm btn-outline-secondary">↻ 更新最新資料</button>
-        </form>
-        <form method="post" action="{% url 'toggle_favorite' s.stock_id %}">{% csrf_token %}
-          <input type="hidden" name="next" value="{{ request.get_full_path }}">
-          {% if s.stock_id in fav_ids %}
-            <button class="btn btn-sm btn-warning">★ 已收藏</button>
-          {% else %}
-            <button class="btn btn-sm btn-outline-warning">☆ 加入最愛</button>
-          {% endif %}
-        </form>
+    <div class="list-group-item">
+      <div class="d-flex justify-content-between align-items-center">
+        <a href="{% url 'stock_detail' s.stock_id %}" class="text-decoration-none">
+          <strong>{{ s.stock_id }}</strong> {{ s.name }}
+          <small class="text-muted ms-2">{{ s.industry }} · {{ s.market }}</small>
+        </a>
+        <div class="d-flex gap-2">
+          <form method="post" action="{% url 'refresh_price' s.stock_id %}">{% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="btn btn-sm btn-outline-secondary">↻ 更新最新資料</button>
+          </form>
+          <form method="post" action="{% url 'toggle_favorite' s.stock_id %}">{% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            {% if s.stock_id in fav_ids %}
+              <button class="btn btn-sm btn-warning">★ 已收藏</button>
+            {% else %}
+              <button class="btn btn-sm btn-outline-warning">☆ 加入最愛</button>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+      <div class="mt-2 d-flex align-items-center flex-wrap gap-1">
+        <small class="text-muted">近年股利：</small>
+        {% for d in s.dividend_summary %}
+          <span class="badge text-bg-light border">{{ d.year }}：{{ d.total }}</span>
+        {% empty %}
+          <small class="text-muted">尚未抓取</small>
+        {% endfor %}
+        <a href="{% url 'stock_dividends' s.stock_id %}" class="small ms-1">查看股息細節 »</a>
       </div>
     </div>
     {% endfor %}

@@ -6,7 +6,10 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from .finmind import FinMindError, build_series, ensure_prices, ensure_stock_list, find_vwap_oscillation_candidates
+from .finmind import (
+    FinMindError, build_series, ensure_dividends, ensure_prices, ensure_stock_list,
+    find_dividend_ranking, find_vwap_oscillation_candidates, recent_dividend_summary,
+)
 from .forms import SignUpForm
 from .models import Favorite, Stock
 
@@ -34,6 +37,8 @@ def home(request):
         except FinMindError as e:
             messages.error(request, str(e))
         results = Stock.objects.filter(Q(stock_id__icontains=q) | Q(name__icontains=q)).order_by("stock_id")[:50]
+        for s in results:
+            s.dividend_summary = recent_dividend_summary(s)
     fav_ids = set(request.user.favorites.values_list("stock_id", flat=True))
     return render(request, "stocks/home.html", {"q": q, "results": results, "fav_ids": fav_ids})
 
@@ -96,10 +101,40 @@ def screener(request):
 
 
 @login_required
+def dividend_ranking(request):
+    candidates = find_dividend_ranking(limit=50)
+    fav_ids = set(request.user.favorites.values_list("stock_id", flat=True))
+    return render(request, "stocks/dividends.html", {"candidates": candidates, "fav_ids": fav_ids})
+
+
+@login_required
+def stock_dividends(request, stock_id):
+    stock = get_object_or_404(Stock, stock_id=stock_id)
+    try:
+        ensure_dividends(stock)
+    except FinMindError as e:
+        messages.error(request, str(e))
+    rows = stock.dividends.order_by("-year", "-date")
+    return render(request, "stocks/stock_dividends.html", {"stock": stock, "rows": rows})
+
+
+@login_required
+@require_POST
+def refresh_dividend(request, stock_id):
+    stock = get_object_or_404(Stock, stock_id=stock_id)
+    try:
+        ensure_dividends(stock, force=True)
+        messages.success(request, f"已更新 {stock} 的股利資料")
+    except FinMindError as e:
+        messages.error(request, str(e))
+    return redirect("stock_dividends", stock_id=stock_id)
+
+
+@login_required
 def favorites(request):
     favs = request.user.favorites.select_related("stock").order_by("stock__stock_id")
     rows = []
     for f in favs:
         last = f.stock.prices.order_by("-date").first()
-        rows.append({"stock": f.stock, "last": last})
+        rows.append({"stock": f.stock, "last": last, "dividends": recent_dividend_summary(f.stock)})
     return render(request, "stocks/favorites.html", {"rows": rows})
