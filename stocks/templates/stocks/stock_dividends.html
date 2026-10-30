@@ -20,6 +20,8 @@
         <th>現金股利(元/股)</th>
         <th>股票股利(元/股)</th>
         <th>合計</th>
+        <th>年度均價</th>
+        <th>現金殖利率</th>
         <th>除息交易日</th>
         <th>公告資料日期</th>
       </tr>
@@ -28,9 +30,11 @@
     {% for r in rows %}
       <tr>
         <td class="text-start">{{ r.year }}</td>
-        <td>{{ r.cash_dividend|floatformat:2 }}</td>
-        <td>{{ r.stock_dividend|floatformat:2 }}</td>
-        <td><strong>{{ r.cash_dividend|add:r.stock_dividend|floatformat:2 }}</strong></td>
+        <td>{{ r.cash|floatformat:2 }}</td>
+        <td>{{ r.stock_div|floatformat:2 }}</td>
+        <td><strong>{{ r.total|floatformat:2 }}</strong></td>
+        <td>{{ r.avg_close|default:"-" }}</td>
+        <td>{% if r.yield_pct %}{{ r.yield_pct }}%{% else %}-{% endif %}</td>
         <td>{{ r.cash_ex_dividend_date|default:"-" }}</td>
         <td>{{ r.date }}</td>
       </tr>

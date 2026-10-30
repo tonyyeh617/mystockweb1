@@ -1,7 +1,10 @@
 """FinMind API 存取與資料庫快取（不使用 token）。"""
+import re
 from datetime import date, datetime, timedelta
 
 import requests
+from django.db.models import Avg, IntegerField
+from django.db.models.functions import Cast
 
 from .models import DailyPrice, Dividend, Stock
 
@@ -311,6 +314,12 @@ def _parse_optional_date(s):
         return None
 
 
+def _parse_roc_year(year_str):
+    """民國年字串有些帶後綴（如 '114年'）、有些純數字（如 '115'），取開頭數字轉整數；失敗回傳 None。"""
+    m = re.match(r"\d+", year_str or "")
+    return int(m.group()) if m else None
+
+
 def ensure_dividends(stock, force=False):
     """抓取股利政策歷史資料並存入資料庫；已有資料時預設略過，force=True 會重新抓取整段歷史（更新最新年度）。"""
     if not force and stock.dividends.exists():
@@ -340,8 +349,18 @@ def ensure_dividends(stock, force=False):
 
 
 def find_dividend_ranking(limit=50):
-    """依每檔股票最近一個有公告股利的年度（現金+股票股利合計）排序，取前 limit 檔。只掃描已下載股利資料的股票。"""
-    rows = Dividend.objects.select_related("stock").order_by("stock_id", "-year", "-date")
+    """依每檔股票最近一個有公告股利年度的「現金殖利率」排序，取前 limit 檔。
+
+    殖利率 = 當年度現金股利 ÷ 該股利所屬年度（民國年換算西元年）的全年平均收盤價，
+    用股利所屬年度的均價當分母，才跟股利本身的時間點對齊，反映當年股東實際的殖利率；
+    不用單日股價（易受單一天雜訊影響），也不用全年最高最低平均（易被單日極端值主導）。
+    只掃描已下載股利與股價資料的股票。
+    """
+    rows = (
+        Dividend.objects.select_related("stock")
+        .annotate(year_num=Cast("year", IntegerField()))
+        .order_by("stock_id", "-year_num", "-date")
+    )
     by_stock = {}
     for r in rows:
         entry = by_stock.get(r.stock_id)
@@ -355,23 +374,76 @@ def find_dividend_ranking(limit=50):
 
     results = []
     for entry in by_stock.values():
-        total = entry["cash"] + entry["stock_div"]
-        if total <= 0:
+        if entry["cash"] <= 0:
             continue
+        avg_close = None
+        roc_year = _parse_roc_year(entry["year"])
+        if roc_year is not None:
+            avg_close = entry["stock"].prices.filter(date__year=roc_year + 1911).aggregate(Avg("close"))["close__avg"]
+        # 無股價資料時仍保留原始股利資料，只是殖利率顯示為空、排序時排到後面
         results.append({
             "stock": entry["stock"],
             "year": entry["year"],
             "cash": round(entry["cash"], 2),
             "stock_div": round(entry["stock_div"], 2),
-            "total": round(total, 2),
+            "total": round(entry["cash"] + entry["stock_div"], 2),
+            "avg_close": round(avg_close, 2) if avg_close else None,
+            "yield_pct": round(entry["cash"] / avg_close * 100, 2) if avg_close else None,
         })
-    results.sort(key=lambda r: -r["total"])
+    results.sort(key=lambda r: r["yield_pct"] if r["yield_pct"] is not None else -1, reverse=True)
     return results[:limit]
+
+
+def stock_dividend_history(stock):
+    """回傳某股票歷年股利明細（依股利所屬年度均價計算現金殖利率），由新到舊排序；只讀快取，不呼叫 API。
+
+    殖利率計算方式同 find_dividend_ranking：現金股利 ÷ 該股利所屬年度（民國年換算西元年）的全年平均收盤價。
+    """
+    by_year = {}
+    order = []
+    for r in stock.dividends.all():
+        entry = by_year.get(r.year)
+        if entry is None:
+            entry = {"year": r.year, "cash": 0.0, "stock_div": 0.0, "date": r.date,
+                      "cash_ex_dividend_date": r.cash_ex_dividend_date}
+            by_year[r.year] = entry
+            order.append(r.year)
+        elif r.date > entry["date"]:
+            entry["date"] = r.date
+            entry["cash_ex_dividend_date"] = r.cash_ex_dividend_date
+        entry["cash"] += r.cash_dividend
+        entry["stock_div"] += r.stock_dividend
+
+    results = []
+    for year in order:
+        entry = by_year[year]
+        avg_close = None
+        roc_year = _parse_roc_year(year)
+        if roc_year is not None:
+            avg_close = stock.prices.filter(date__year=roc_year + 1911).aggregate(Avg("close"))["close__avg"]
+        results.append({
+            "year": year,
+            "date": entry["date"],
+            "cash_ex_dividend_date": entry["cash_ex_dividend_date"],
+            "cash": round(entry["cash"], 2),
+            "stock_div": round(entry["stock_div"], 2),
+            "total": round(entry["cash"] + entry["stock_div"], 2),
+            "avg_close": round(avg_close, 2) if avg_close else None,
+            "yield_pct": round(entry["cash"] / avg_close * 100, 2) if avg_close else None,
+        })
+
+    def _year_key(r):
+        y = _parse_roc_year(r["year"])
+        return y if y is not None else -1
+    results.sort(key=_year_key, reverse=True)
+    return results
 
 
 def recent_dividend_summary(stock, years=5):
     """由快取資料彙整某股票近幾個年度的股利合計（現金+股票股利），由新到舊排序；只讀快取，不呼叫 API。"""
-    rows = list(stock.dividends.order_by("-year", "-date"))
+    rows = list(
+        stock.dividends.annotate(year_num=Cast("year", IntegerField())).order_by("-year_num", "-date")
+    )
     totals, order = {}, []
     for r in rows:
         if r.year not in totals:

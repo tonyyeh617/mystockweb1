@@ -15,11 +15,13 @@
       <td class="text-end">{{ r.last.close|default:"-" }}</td>
       <td>
         <div class="d-flex align-items-center flex-wrap gap-1">
-          {% for d in r.dividends %}
-            <span class="badge text-bg-light border">{{ d.year }}：{{ d.total }}</span>
-          {% empty %}
-            <small class="text-muted">尚未抓取</small>
-          {% endfor %}
+          {% with d=r.dividends.0 %}
+            {% if d %}
+              <span class="badge text-bg-light border">{{ d.year }}：{{ d.total }}</span>
+            {% else %}
+              <small class="text-muted">尚未抓取</small>
+            {% endif %}
+          {% endwith %}
           <a href="{% url 'stock_dividends' r.stock.stock_id %}" class="small ms-1">細節 »</a>
         </div>
       </td>

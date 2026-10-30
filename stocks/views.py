@@ -9,6 +9,7 @@ from django.views.decorators.http import require_POST
 from .finmind import (
     FinMindError, build_series, ensure_dividends, ensure_prices, ensure_stock_list,
     find_dividend_ranking, find_vwap_oscillation_candidates, recent_dividend_summary,
+    stock_dividend_history,
 )
 from .forms import SignUpForm
 from .models import Favorite, Stock
@@ -114,7 +115,7 @@ def stock_dividends(request, stock_id):
         ensure_dividends(stock)
     except FinMindError as e:
         messages.error(request, str(e))
-    rows = stock.dividends.order_by("-year", "-date")
+    rows = stock_dividend_history(stock)
     return render(request, "stocks/stock_dividends.html", {"stock": stock, "rows": rows})
 
 
@@ -136,5 +137,5 @@ def favorites(request):
     rows = []
     for f in favs:
         last = f.stock.prices.order_by("-date").first()
-        rows.append({"stock": f.stock, "last": last, "dividends": recent_dividend_summary(f.stock)})
+        rows.append({"stock": f.stock, "last": last, "dividends": recent_dividend_summary(f.stock, years=1)})
     return render(request, "stocks/favorites.html", {"rows": rows})
