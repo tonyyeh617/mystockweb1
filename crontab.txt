@@ -1,0 +1,1 @@
+0 */2 * * * cd /home/azureuser/venv1/mystockweb1 && /home/azureuser/venv1/bin/python /home/azureuser/venv1/mystockweb1/manage.py fetch_daily  >> /home/azureuser/fetch_daily.log 2>&1
