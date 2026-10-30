@@ -4,6 +4,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">{{ stock.stock_id }} {{ stock.name }} <small class="text-muted fs-6">{{ stock.industry }}</small></h3>
   <div class="d-flex gap-2">
+    <a href="{% url 'stock_dividends' stock.stock_id %}" class="btn btn-outline-info">💰 近年股利細節</a>
     <form method="post" action="{% url 'refresh_price' stock.stock_id %}">{% csrf_token %}
       <button class="btn btn-outline-secondary">↻ 更新最新資料</button>
     </form>

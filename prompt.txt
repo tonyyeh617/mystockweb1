@@ -143,5 +143,196 @@ python manage.py fetch_all_prices這個指令幫我改成寫到排程的寫法
 在查尋或我們最愛的某個股中，我也想要顯示這個股的近幾年股利狀態
 
 ===============================================================
+ask:此系統要手動執行的有那些檔案
+
+asn:
+檔案	執行指令	用途
+fetch_all_prices.py	python manage.py fetch_all_prices	補齊全部股票的每日股價資料（已有排程腳本 fetch_all_prices.bat，可用工作排程器每小時自動觸發）
+fetch_volume_history.py	python manage.py fetch_volume_history	下載近3年成交量歷史，供「推薦選股」(VWAP震盪選股) 頁面使用，需手動執行
+fetch_dividends.py	python manage.py fetch_dividends	下載全部股票的股利政策（股息）歷史，供「股息排行」頁面使用，需手動執行
+=====
+ask:
+fetch_volume_history.py使用者點網頁即會觸發嗎?
+
+ans:
+不會。fetch_volume_history.py 是獨立的 Django management command，只能用
+手動執行，網頁操作不會觸發它。
+對應的「推薦選股」頁面（views.py:97 view）只呼叫 find_vwap_oscillation_candidates()（finmind.py:284），而這個函式只是讀取資料庫裡已經抓好的 stock.prices，完全不會呼叫 FinMind API，也沒有呼叫 plan_volume_fetch / fetch_price_range（這兩個是 fetch_volume_history.py 指令才會用到的函式）。
+所以流程是：
+你手動跑 python manage.py fetch_volume_history（會呼叫 API 把近3年成交量資料存進 DB，且支援中斷續跑）。
+使用者點網頁「推薦選股」按鈕時，只是從 DB 讀取已存好的資料做篩選計算，不會觸發任何 API 請求。
+
+=====
+ask:
+fetch_dividends.py執行後，再執行會接續還是會重來?
+
+ans:
+看情況，分兩種結果：
+
+遇到 API 流量限制中途失敗：會把目前處理到的 last_stock_id 記錄進 FetchCheckpoint（key=dividend_history）並停止。下次執行會自動接續，從 stock_id__gt=last_stock_id 繼續抓（fetch_dividends.py:42-46）。
+
+順利跑完整份股票清單（沒有中途失敗）：最後會把 checkpoint.last_stock_id 重設為空字串（fetch_dividends.py:79-81），所以下次執行會從頭掃描全部股票。不過因為每檔股票若已有資料會直接「略過（已有資料）」不呼叫 API（fetch_dividends.py:56-62），所以實際上不會重新下載已抓過的資料，只是會重新走一遍清單、很快跳過。
+
+另外兩個參數會影響這個行為：
+
+--reset：手動強制忽略進度，從頭開始（即使上次沒跑完）。
+--force：即使已有資料也會重新呼叫 API 覆蓋更新（用於更新最新年度股利公告），這時才是真正「重來」地重抓每一檔。
+
+=====
+ask:
+fetch_all_prices.py、fetch_volume_history.py、fetch_dividends.py 讀取資料庫的內容是同一個還是分開?
+
+ans:
+都是同一個 SQLite 資料庫（db.sqlite3），但寫入的資料表（model）分兩類：
+
+指令	寫入的資料表	說明
+fetch_all_prices	DailyPrice（透過 ensure_prices）	每日股價
+fetch_volume_history	同一個 DailyPrice（透過 fetch_price_range）	近3年成交量歷史，其實是補同一張股價表的區間資料
+fetch_dividends	Dividend（透過 ensure_dividends）	股利政策，獨立的表，跟股價完全分開
+也就是說：
+
+fetch_all_prices.py 和 fetch_volume_history.py 其實是同一張表 DailyPrice，只是抓取的日期區間和觸發邏輯不同（前者抓「最新未抓過」的資料，後者抓「近3年指定區間」），兩者會互相補齊/覆蓋同一檔股票的同一天資料（finmind.py:62 和 finmind.py:125 都是 DailyPrice(...)，並用 unique_fields=["stock","date"] 做 upsert，不會重複）。
+fetch_dividends.py 寫入的是獨立的 Dividend 表，跟股價表完全無關。
+三者共用的另一張表是 FetchCheckpoint（記錄進度用），但靠不同的 key 區分，彼此互不干擾：
+
+fetch_volume_history 用 key="volume_history"（整體進度）以及每檔股票一筆 key="volume_covered:<股票代號>"（finmind.py）。
+fetch_dividends 用 key="dividend_history"（fetch_dividends.py）。
+所有指令也都共用同一張 Stock 表（股票清單），透過 ForeignKey 關聯。
+=====
+ask:
+若放到同一個，會不會只要固定執行一個檔即可
+
+ans:
+技術上現在這套常數下兩者確實有重疊，但不建議只留一個，原因如下：
+
+它們雖然寫入同一張 DailyPrice 表，但抓取邏輯的方向不同：
+
+fetch_all_prices.py（透過 finmind.py:43）：
+只在該股票「完全沒有任何價格紀錄」時，才會一次回補 YEARS(5年) + WARMUP_DAYS(120天) 的歷史（finmind.py:50-51）。
+之後只會「從最後一筆之後往前補到今天」，不會再往回補更早的資料。
+
+fetch_volume_history.py（透過 finmind.py:158 + fetch_price_range）：
+明確檢查資料庫現有資料是否真的涵蓋篩選股票要用的近3年區間（finmind.py:169-178），不夠的話才主動回補那段區間，並記錄 volume_covered:<股票代號> 標記避免重複驗證。
+目前常數下（5年回補 > 3年需求），只要 fetch_all_prices 有機會對每一檔股票完成「第一次」抓取，它留下的歷史其實已經足夠讓 finmind.py:284 直接從資料庫判斷涵蓋度（這函式本身也會再檢查一次 rows[0]／rows[-1] 是否在區間內，見 finmind.py:300-302），所以理論上合併成只跑 fetch_all_prices 也可能湊巧夠用。
+
+但不建議這樣做，因為：
+
+fetch_all_prices 一次只處理 300 檔（--limit 300），且一旦某股已經 last_fetched，之後永遠不會再往回補——如果未來把 YEARS／WARMUP_DAYS 調小、或某股第一次抓取時剛好 API 回傳不完整，就會永久留下涵蓋不足的洞，而且沒有任何機制會發現或修補它。
+fetch_volume_history 正是為了「獨立驗證＋按需回補」這個保證而存在，不依賴 fetch_all_prices 內部的隱性假設，兩者耦合在一起會讓股息/選股功能的資料正確性變成要去理解另一支指令的副作用才能保證，維護成本更高。
+簡單說：目前可能剛好夠用，但這是巧合而非設計保證，兩支指令各自負責不同的資料保證（「盡量每日更新到最新」vs「保證篩選所需的歷史區間涵蓋度」），建議維持分開執行。
+=====
+ask:
+fetch_dividends呢?
+
+ans:
+fetch_dividends.py 不應該合併，而且性質完全不同，無法互相取代：
+
+不同資料表、不同 FinMind dataset：寫入的是獨立的 Dividend 表，資料來源是 TaiwanStockDividend（股利政策表），跟 fetch_all_prices／fetch_volume_history 用的 TaiwanStockPrice 完全是兩個不同的 API 端點，彼此沒有資料重疊，合併沒有意義。
+
+抓取方式也跟股價邏輯不一樣——不是「每日增量補最新」，而是「一次抓全部歷史、之後整段跳過」：
+
+finmind.py:313-315：只要 stock.dividends.exists() 就直接 return，不像 ensure_prices 會每天自動補最新。
+想要抓到「今年新公告的股利」，只能用 --force（或網頁上的「↻ 更新股息資料」按鈕），而且 force=True 時是整段 2005 年至今重抓一次，不是增量補差異——跟 ensure_prices 的增量設計完全不同，所以更不適合直接套用 fetch_all_prices 那種「每小時排程、增量補最新」的用法。
+結論：fetch_dividends 必須維持獨立指令。如果之後想讓股息資料也能定期自動更新最新年度，需要另外排程執行 fetch_dividends --force（但要注意這是整段重抓、較耗 API 次數，不建議像 fetch_all_prices 那樣頻繁排程，一年跑個幾次抓新公告的股利即可）。
+
+=====
+ask:
+那這三個我排程時程要怎麼設比較好
+
+ans:
+檔案建立功能目前被停用（唯讀模式），以下純粹提供排程建議，你可以自行建立對應的 .bat：
+
+建議排程
+指令	建議頻率	原因
+fetch_all_prices	維持現狀：每小時（已有 fetch_all_prices.bat）	預設 --limit 300 剛好對應 FinMind 免費額度「每小時 300 次」，每天收盤(17:30)後連續跑幾個小時就能把全部股票補完；當天已抓過的股票會直接 skip，多排幾次也不太浪費。
+fetch_volume_history	每天一次即可（例如每天 20:00，排在價格更新之後）	視窗只是「近3年、往前推30天」，每天只往前滑動1天，且已涵蓋的股票 plan_volume_fetch 會直接回傳 None、完全不呼叫 API，所以每天跑一次成本很低，只是為了讓新上市股票或缺口及時補上。不需要像價格那樣每小時跑。
+fetch_dividends（不加 --force）	每天或每週一次都可以	不加 --force 時，已有資料的股票會直接 skip（fetch_dividends.py:56-62），幾乎零成本，主要作用是讓新上市/新加入的股票自動補上股利歷史。
+fetch_dividends --force	不建議排程、改成手動或低頻率（如每季一次）執行	--force 會把全部股票的股利資料整段（2005年~今）重抓一次，等於每次都要重新消耗完整 API 額度跑過全部股票，非常昂貴。股利公告一年也就一兩次（台股股東會多在每年 Q2~Q3 公告），建議只在股利公告旺季（例如每年 3 月、6 月）手動跑一兩次 python manage.py fetch_dividends --force，而不是常態排程。
+具體建議的排程表（Windows 工作排程器）
+fetch_all_prices.bat — 每小時觸發（維持現狀不變）。
+新增 fetch_volume_history.bat，內容比照現有格式：
+
+排程設為每天一次（建議排在 fetch_all_prices 大致跑完之後，例如晚上 8~9 點）。
+新增 fetch_dividends.bat（不加 --force）：
+
+排程設為每天或每週一次。
+--force 更新最新股利年度：不建議排程，改成行事曆提醒自己每季或每半年手動執行一次 python manage.py fetch_dividends --force（會跑比較久，建議挑离峰時段執行）。
+若你要我實際建立這兩支 .bat 檔案，請切回可編輯模式後再跟我說一聲即可。
+
+=====
+ask:
+每一小時我只能抓三百筆，要怎麼排比較好?
+
+ans:
+關鍵問題：這三支指令都是呼叫同一個 _get()（同一個 FinMind endpoint），共用同一個「每小時 300 次」的額度，不是各自獨立的 300 次。所以排程時最重要的原則是：同一小時內盡量只讓一支指令在用額度，避免互相搶額度。
+
+建議排法
+原則：依「初期建檔」跟「平常維運」分兩階段處理
+
+階段一：初期建檔（fetch_volume_history、fetch_dividends 第一次跑時）
+這兩個第一次執行要掃過全部股票、灌進初始資料，會大量消耗額度，建議：
+
+先把 fetch_all_prices 的排程暫停（工作排程器右鍵「停用」即可），
+手動連續執行 fetch_volume_history（之後 fetch_dividends），讓它們各自獨佔 300 次/小時，每次碰到額度上限就自動停並記錄進度（checkpoint），等一小時後再執行一次即可接續，直到看到「全部股票皆已處理完成」。
+建完之後再把 fetch_all_prices 排程重新啟用。
+這階段因為兩者互斥（不會同時搶），不需要特別分配額度。
+
+階段二：平常維運（建檔完成後）
+建檔完成後，fetch_volume_history 和 fetch_dividends（不加 --force）對已有資料的股票會直接略過、不耗用額度（見你選取的 fetch_dividends.py:56-61），只有新上市股票才會真的呼叫 API，次數很少。這時排程建議：
+
+指令	建議時段	理由
+fetch_all_prices	每小時（不變）	主力任務，收盤後連跑幾小時即可補完全部股票
+fetch_volume_history	固定排在凌晨離峰時段，例如凌晨 3:00，一天一次	此時 fetch_all_prices 當天通常早已補完、進入「今天已抓過」全部 skip 的狀態，額度是空的，剛好讓這支指令獨享 300 次/小時
+fetch_dividends（不加 --force）	同樣排在凌晨離峰時段，例如凌晨 3:30，一天或一週一次	理由同上；且此時幾乎都是 skip，耗用額度很低，跟 fetch_volume_history 前後錯開幾分鐘即可避免同一小時衝突
+fetch_dividends --force	不排程，手動執行，執行前先停用 fetch_all_prices 排程，跑完再啟用	這個會整段重抓全部股票、非常耗額度，跟其他排程擠在一起一定會互相搶額度失敗
+額外建議：去 FinMind 註冊免費帳號拿 token
+目前程式 finmind.py:17 的 _get() 沒有帶 Authorization header，等於完全沒用到「免費註冊 token 後額度變 600/小時」這個福利（目前是用未登入的 300/小時）。如果你在 FinMind 官網免費註冊拿到 token，額度直接翻倍到 600/小時，排程衝突的壓力會小很多——如果你想要，我可以幫你把 _get() 改成支援帶 token（例如從環境變數或 settings 讀取），這樣這三支指令排程起來會寬鬆很多。需要的話跟我說一聲。
+
+ask:
+因為fetch_all_prices，每小時都要跑，在這個程式若將fetch_dividends、fetch_volume_history所需要的也一起拿到並存入，會不會更好?
+
+ans:
+值得做，而且理由很直接：既然三支指令共用同一包 300 次/小時額度，與其讓三支各自獨立排程、誰先搶到就先用光（還可能因為另一支正在用而直接 402 失敗、整批中斷），不如讓同一次執行按優先序自己分配這包額度，這樣可以保證：
+
+股價（每天都要）永遠排第一優先，不會被其他兩個任務搶走額度。
+剩下的額度才拿去補股利/成交量歷史的缺口，不會因為排程時間剛好卡在同一小時而互相搞砸。
+只要維護一支排程、一個額度計數器，不用再煩惱「這三個要怎麼避開彼此的時段」。
+建議設計
+新增一支合併指令（例如 fetch_daily），取代原本三支各自獨立排程的方式：
+
+
+原本三個 FetchCheckpoint 各自的 key（volume_history、dividend_history）可以保留沿用，合併指令內部還是各自呼叫同樣的函式，只是用同一個計數器決定什麼時候該停下來，換句話說只是把「排程層」合併，finmind.py 裡的函式完全不用改。
+排程只留一個 .bat，每小時觸發這支合併指令即可，fetch_all_prices.bat、原本規劃的 fetch_volume_history.bat、fetch_dividends.bat 都可以不用個別排了。
+fetch_dividends --force（整段重抓最新年度）建議還是維持獨立、手動執行，不要放進這個每小時的自動合併流程，因為它本質上是「偶爾才做、會吃光整包額度」的例外操作，混進日常自動化反而危險。
+要注意的取捨
+平常穩定期（股利、成交量都已補完）這兩個任務幾乎不耗額度（都是略過），所以合併的好處主要發生在初期建檔階段；補完之後，合併與分開排程的實際效果差異不大，主要差在「不用煩惱排程時間互撞」這點維運上的方便性。
+合併後這支指令會比較肥（一次做三件事），單獨測試「只更新股價」會比較不直覺，需要靠 --skip-volume / --skip-dividend 之類的參數保留彈性。
+這個方向我覺得合理，要不要我幫你把這支 fetch_daily 合併指令實作出來（並保留 fetch_all_prices / fetch_volume_history / fetch_dividends 三支原始指令不動，方便你單獨除錯）？
+
+
+===============================================================
+ask:
+直接幫我修正，幫我把這支 fetch_daily 合併指令實作出來（並保留 fetch_all_prices / fetch_volume_history / fetch_dividends 三支原始指令不動，方便你單獨除錯）？
+
+在圖表顯示那頁，如http://192.168.57.246:8080/stock/2105/，幫我加一個按鈕，可以近年股利細即
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
