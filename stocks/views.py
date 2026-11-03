@@ -8,8 +8,8 @@ from django.views.decorators.http import require_POST
 
 from .finmind import (
     FinMindError, build_series, ensure_dividends, ensure_prices, ensure_stock_list,
-    find_dividend_ranking, find_vwap_oscillation_candidates, recent_dividend_summary,
-    stock_dividend_history,
+    find_buy_signal_candidates, find_dividend_ranking, find_vwap_oscillation_candidates,
+    recent_dividend_summary, stock_dividend_history,
 )
 from .forms import SignUpForm
 from .models import Favorite, Stock
@@ -99,6 +99,13 @@ def screener(request):
     candidates = find_vwap_oscillation_candidates(limit=20)
     fav_ids = set(request.user.favorites.values_list("stock_id", flat=True))
     return render(request, "stocks/screener.html", {"candidates": candidates, "fav_ids": fav_ids})
+
+
+@login_required
+def buy_signal(request):
+    candidates = find_buy_signal_candidates(limit=20)
+    fav_ids = set(request.user.favorites.values_list("stock_id", flat=True))
+    return render(request, "stocks/buy_signal.html", {"candidates": candidates, "fav_ids": fav_ids})
 
 
 @login_required

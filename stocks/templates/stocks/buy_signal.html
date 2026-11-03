@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}實際買進策略{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">🎯 實際買進策略（前 20）</h3>
+  <a href="{% url 'buy_signal' %}" class="btn btn-outline-secondary btn-sm">重新整理</a>
+</div>
+<small class="text-muted d-block mb-3">
+  篩選條件（須依序通過四關）：
+  第一關 MA60 近5日斜率 ≥ 0.5%（轉強）；
+  第二關 收盤價 > MA60，且 MA20 > MA60（多頭排列）；
+  第三關 收盤價突破近20日VWAP（量價加權均價，最好近期持續站上）；
+  第四關 成交量 > 近20日均量（不含當日）的 1.2 倍（確認量能）。
+  依斜率強度、乖離幅度、VWAP突破幅度與量能放大程度綜合評分；僅掃描近 10 天內有更新價格的股票。
+</small>
+{% if candidates %}
+<table class="table table-hover bg-white shadow-sm align-middle">
+  <thead class="table-dark">
+    <tr>
+      <th>#</th><th>代號</th><th>名稱</th>
+      <th class="text-end">最新收盤</th><th class="text-end">MA20</th><th class="text-end">MA60</th>
+      <th class="text-end">MA60斜率</th><th class="text-end">VWAP20</th>
+      <th class="text-end">站上VWAP天數</th><th class="text-end">量能倍數</th>
+      <th class="text-end">評分</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in candidates %}
+    <tr>
+      <td>{{ forloop.counter }}</td>
+      <td><a href="{% url 'stock_detail' c.stock.stock_id %}">{{ c.stock.stock_id }}</a></td>
+      <td>{{ c.stock.name }}</td>
+      <td class="text-end">{{ c.close|floatformat:2 }}<br><small class="text-muted">{{ c.latest_date }}</small></td>
+      <td class="text-end">{{ c.ma20|floatformat:2 }}</td>
+      <td class="text-end">{{ c.ma60|floatformat:2 }}</td>
+      <td class="text-end">{{ c.ma60_slope }}%</td>
+      <td class="text-end">{{ c.vwap20|floatformat:2 }}</td>
+      <td class="text-end">{{ c.sustain_days }}</td>
+      <td class="text-end">{{ c.volume_ratio }}x</td>
+      <td class="text-end"><strong>{{ c.score }}</strong></td>
+      <td>
+        <form method="post" action="{% url 'toggle_favorite' c.stock.stock_id %}">{% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'buy_signal' %}">
+          {% if c.stock.stock_id in fav_ids %}
+            <button class="btn btn-sm btn-warning">★</button>
+          {% else %}
+            <button class="btn btn-sm btn-outline-warning">☆</button>
+          {% endif %}
+        </form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="alert alert-secondary">目前沒有符合條件的股票（也可能是股價資料尚未更新）。</div>
+{% endif %}
+{% endblock %}

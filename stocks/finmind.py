@@ -303,6 +303,109 @@ def find_vwap_oscillation_candidates(limit=20):
     return candidates[:limit]
 
 
+# ---- 實際買進策略：MA60轉強 + 多頭排列 + 突破VWAP + 爆量 ----
+BUY_MA_SLOPE_DAYS = 5  # MA60 斜率觀察天數
+BUY_MA_SLOPE_MIN = 0.005  # 第一關：MA60 近5日斜率門檻 0.5%
+BUY_VWAP_DAYS = 20  # 第三關：短期VWAP（量價加權均價）使用天數
+BUY_VOLUME_MA_DAYS = 20  # 第四關：成交量均量天數（不含當日）
+BUY_VOLUME_RATIO_MIN = 1.2  # 第四關：成交量須達均量門檻倍數
+BUY_FRESHNESS_DAYS = 10  # 最新資料需在幾天內才視為有效訊號（排除停牌太久的舊資料）
+BUY_MIN_ROWS = 65  # 計算 MA60 斜率所需最少交易日數（60 + 斜率觀察天數 + 1）
+
+
+def _rolling_vwap(typical, volumes, end_index, window):
+    """以 typical price（(高+低+收)/3）與成交量計算 end_index 往前 window 天的量價加權均價。"""
+    t_window = typical[end_index - window + 1: end_index + 1]
+    v_window = volumes[end_index - window + 1: end_index + 1]
+    total_v = sum(v_window)
+    if total_v <= 0:
+        return None
+    return sum(t * v for t, v in zip(t_window, v_window)) / total_v
+
+
+def find_buy_signal_candidates(limit=20):
+    """「實際買進策略」選股，需依序通過四關：
+
+    1) MA60 近5日斜率 ≥ 0.5%（轉強）
+    2) 收盤價 > MA60，且 MA20 > MA60（確認多頭排列）
+    3) 收盤價突破近20日VWAP（最好近期持續站上）
+    4) 成交量 > 近20日均量（不含當日）的 1.2 倍（確認量能）
+
+    通過篩選後依綜合評分排序，取前 limit 檔。
+    """
+    today = date.today()
+    candidates = []
+    stocks = Stock.objects.filter(prices__isnull=False).distinct()
+    for stock in stocks:
+        rows = list(stock.prices.order_by("date").values_list("date", "high", "low", "close", "volume"))
+        rows = [r for r in rows if r[4] > 0 and r[1] > 0 and r[2] > 0 and r[3] > 0]
+        if len(rows) < BUY_MIN_ROWS or rows[-1][0] < today - timedelta(days=BUY_FRESHNESS_DAYS):
+            continue  # 資料不足或太久未更新，無法視為有效訊號
+
+        closes = [r[3] for r in rows]
+        volumes = [r[4] for r in rows]
+        typical = [(r[1] + r[2] + r[3]) / 3 for r in rows]
+        i = len(rows) - 1  # 最新一筆
+
+        # 第一關：MA60 近5日斜率
+        ma60_today = sum(closes[i - 59:i + 1]) / 60
+        ma60_prev = sum(closes[i - BUY_MA_SLOPE_DAYS - 59:i - BUY_MA_SLOPE_DAYS + 1]) / 60
+        if ma60_prev <= 0:
+            continue
+        slope = (ma60_today - ma60_prev) / ma60_prev
+        if slope < BUY_MA_SLOPE_MIN:
+            continue
+
+        # 第二關：多頭排列
+        ma20_today = sum(closes[i - 19:i + 1]) / 20
+        close_today = closes[i]
+        if not (close_today > ma60_today and ma20_today > ma60_today):
+            continue
+
+        # 第三關：突破短期VWAP
+        vwap20 = _rolling_vwap(typical, volumes, i, BUY_VWAP_DAYS)
+        if vwap20 is None or close_today <= vwap20:
+            continue
+        sustain_days = 0  # 近期連續站上VWAP的天數（含今日），作為加分項
+        for j in range(i, max(i - BUY_MA_SLOPE_DAYS, BUY_VWAP_DAYS - 1) - 1, -1):
+            vwap_j = _rolling_vwap(typical, volumes, j, BUY_VWAP_DAYS)
+            if vwap_j is None or closes[j] <= vwap_j:
+                break
+            sustain_days += 1
+
+        # 第四關：爆量
+        vol_ma20 = sum(volumes[i - BUY_VOLUME_MA_DAYS:i]) / BUY_VOLUME_MA_DAYS
+        if vol_ma20 <= 0:
+            continue
+        volume_ratio = volumes[i] / vol_ma20
+        if volume_ratio < BUY_VOLUME_RATIO_MIN:
+            continue
+
+        score = (
+            min(slope / 0.02, 1) * 25  # MA60斜率強度
+            + min((close_today / ma60_today - 1) / 0.10, 1) * 15  # 收盤超出MA60幅度
+            + min((ma20_today / ma60_today - 1) / 0.05, 1) * 15  # MA20領先MA60的幅度
+            + min((close_today / vwap20 - 1) / 0.05, 1) * 15  # 突破VWAP幅度
+            + min(sustain_days / BUY_MA_SLOPE_DAYS, 1) * 10  # 站上VWAP的持續天數
+            + min((volume_ratio - 1) / 1.0, 1) * 20  # 量能放大程度
+        )
+        candidates.append({
+            "stock": stock,
+            "latest_date": rows[i][0],
+            "close": close_today,
+            "ma20": round(ma20_today, 2),
+            "ma60": round(ma60_today, 2),
+            "ma60_slope": round(slope * 100, 2),
+            "vwap20": round(vwap20, 2),
+            "sustain_days": sustain_days,
+            "volume_ratio": round(volume_ratio, 2),
+            "score": round(score, 1),
+        })
+
+    candidates.sort(key=lambda c: -c["score"])
+    return candidates[:limit]
+
+
 # ---- 股息排行：依最近一個有公告股利的年度，現金+股票股利合計排序 ----
 DIVIDEND_START = date(2005, 5, 1)  # FinMind 股利資料起始日
 
